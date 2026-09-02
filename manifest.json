@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.inxeo.plexamp",
+  "name": "Plexamp",
+  "version": "1.1.0",
+  "author": "Inxeo",
+  "license": "MIT",
+  "description": "Previous, play/pause, next, and a looping track marquee while Plexamp is open. Made with Grok Build.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Plexamp",
+    "description": "Previous / play-pause / next plus a looping Plexamp track marquee. Made with Grok Build.",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "left"
+  }
+}
