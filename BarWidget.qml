@@ -5,7 +5,7 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "io.github.inxeo.plexamp"
+  moduleName: "io.github.inxeo.plexamp-simple-player"
 
   readonly property var players: Mpris.players ? Mpris.players.values : []
   readonly property var player: {

@@ -1,4 +1,4 @@
-# Plexamp
+# Plexamp Simple Player
 
 A compact Omarchy bar widget for [Plexamp](https://www.plex.tv/plexamp/): previous, play/pause, next, and a looping marquee of the current track.
 
@@ -6,7 +6,7 @@ The controls only appear while Plexamp is running. Track title and artist scroll
 
 Made with [Grok Build](https://x.ai/).
 
-![Plexamp widget on the Omarchy bar](preview.png)
+![Plexamp Simple Player on the Omarchy bar](preview.png)
 
 ## Requirements
 
@@ -18,25 +18,25 @@ No extra packages or API keys.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/Inxeo/omarchy-plexamp.git --enable
+omarchy plugin add https://github.com/Inxeo/omarchy-plexamp-simple-player.git --enable
 ```
 
 The widget defaults to the **left** side of the bar. To move it:
 
 ```bash
-omarchy bar move io.github.inxeo.plexamp --section left
+omarchy bar move io.github.inxeo.plexamp-simple-player --section left
 ```
 
 ## Remove
 
 ```bash
-omarchy plugin remove io.github.inxeo.plexamp
+omarchy plugin remove io.github.inxeo.plexamp-simple-player
 ```
 
 To disable it but keep the files:
 
 ```bash
-omarchy plugin disable io.github.inxeo.plexamp
+omarchy plugin disable io.github.inxeo.plexamp-simple-player
 ```
 
 ## How it works
