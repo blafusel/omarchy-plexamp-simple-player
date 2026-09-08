@@ -1,4 +1,6 @@
 import QtQuick
+import Quickshell
+import Quickshell.Io
 import Quickshell.Services.Mpris
 import qs.Commons
 import qs.Ui
@@ -22,7 +24,10 @@ BarWidget {
   readonly property string artist: player ? (player.trackArtist || "") : ""
   readonly property string trackLabel: title + (artist ? "  ·  " + artist : "")
   readonly property string trackTooltip: title + (artist ? " — " + artist : "")
+  readonly property string album: player ? (player.trackAlbum || "") : ""
+  readonly property string artUrl: player ? (player.trackArtUrl || "") : ""
   property real maxLabelWidth: 180
+  property bool infoPopupOpen: false
 
   visible: player !== null
   implicitWidth: visible ? (vertical ? barSize : row.implicitWidth + Style.space(8)) : 0
@@ -91,6 +96,104 @@ BarWidget {
         text: "󰒭"
         tooltipText: "Next"
         onPressed: root.next()
+      }
+    }
+
+    Item {
+      id: ratingWidget
+      visible: !root.vertical && root.player !== null
+      anchors.verticalCenter: parent.verticalCenter
+
+      readonly property string trackId: root.player && root.player.metadata
+          ? String(root.player.metadata["mpris:trackid"] || "") : ""
+      readonly property real ratingValue: root.player && root.player.metadata
+          ? (root.player.metadata["xesam:userRating"] || 0) : 0
+      // Plexamp's own MPRIS Metadata is read-only (confirmed via introspection:
+      // no writable rating property or method exists there), so a rating set
+      // here won't be reflected back by Plexamp until it independently
+      // refreshes. Track our own optimistic value per-track until then.
+      property string manualRatingTrackId: ""
+      property real manualRatingValue: 0
+      readonly property real effectiveRatingValue: manualRatingTrackId === trackId ? manualRatingValue : ratingValue
+      readonly property int ratingStars: Math.max(0, Math.min(5, Math.round(effectiveRatingValue * 5)))
+      // -1 means no hover in progress; otherwise the star index the mouse is over.
+      property int hoverStars: -1
+      readonly property int displayStars: hoverStars >= 0 ? hoverStars : ratingStars
+
+      width: badge.implicitWidth
+      height: badge.implicitHeight
+
+      function starGlyph(filled) {
+        // md-star / md-star_outline (Material Design Icons range) render
+        // reliably in this font; the classic fa-star codepoints (0xF005/6)
+        // silently fail to rasterize in this widget for unknown reasons.
+        return filled ? "󰓎" : "󰓒"
+      }
+
+      // Ratings live on the Plex Media Server, not in Plexamp: Plexamp's MPRIS
+      // Metadata is read-only and exposes no rating-write method, so setting a
+      // rating means talking to the Plex server directly, then nudging
+      // Plexamp's Companion API so it re-fetches metadata and its own UI
+      // picks up the change. rate-track.sh already implements exactly that
+      // (PUT /:/rate, then refreshPlayQueue or a seek nudge), so it's reused
+      // here rather than reimplementing Companion discovery in QML. Override
+      // PLEXAMP_RATER_SCRIPT if the script lives somewhere other than the
+      // default dev checkout path below.
+      readonly property string raterScript: Quickshell.env("PLEXAMP_RATER_SCRIPT")
+          || ((Quickshell.env("HOME") || "") + "/dev/plexamp-controller/rate-track.sh")
+
+      function setRating(stars) {
+        if (!root.player)
+          return
+        setRatingProc.command = [raterScript, String(stars)]
+        if (!setRatingProc.running)
+          setRatingProc.running = true
+        ratingWidget.manualRatingTrackId = ratingWidget.trackId
+        ratingWidget.manualRatingValue = stars / 5
+      }
+
+      Process {
+        id: setRatingProc
+        onExited: function(exitCode) {
+          if (exitCode !== 0)
+            console.warn("plexamp-simple-player: rating write rejected (exit " + exitCode + ")")
+        }
+      }
+
+      Row {
+        id: badge
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 0
+
+        Repeater {
+          model: 5
+
+          // Nerd Font icon glyphs report unreliable advance widths, so a
+          // plain concatenated string collapses into an overlapping mess.
+          // Each star gets its own fixed-size box instead.
+          Text {
+            readonly property int starIndex: index + 1
+            width: Style.font.body
+            textFormat: Text.PlainText
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            text: ratingWidget.starGlyph(starIndex <= ratingWidget.displayStars)
+            color: ratingWidget.hoverStars >= 0 && starIndex <= ratingWidget.hoverStars
+                ? Color.accent
+                : (root.bar ? root.bar.barForeground : Color.foreground)
+            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+            font.pixelSize: Style.font.body * 0.85
+
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onEntered: ratingWidget.hoverStars = starIndex
+              onExited: if (ratingWidget.hoverStars === starIndex) ratingWidget.hoverStars = -1
+              onClicked: ratingWidget.setRating(starIndex)
+            }
+          }
+        }
       }
     }
 
@@ -164,9 +267,143 @@ BarWidget {
         id: labelMouse
         anchors.fill: parent
         hoverEnabled: true
-        acceptedButtons: Qt.NoButton
+        cursorShape: Qt.PointingHandCursor
         onEntered: if (root.bar && root.trackTooltip) root.bar.showTooltip(scrollClip, root.trackTooltip)
         onExited: if (root.bar) root.bar.hideTooltip(scrollClip)
+        onClicked: root.infoPopupOpen = !root.infoPopupOpen
+      }
+
+      QtObject {
+        id: infoPopupOwner
+        function close() { root.infoPopupOpen = false }
+      }
+
+      PopupCard {
+        id: infoPopup
+        anchorItem: scrollClip
+        bar: root.bar
+        owner: infoPopupOwner
+        open: root.infoPopupOpen
+        contentWidth: infoPopup.fittedContentWidth(Style.space(260))
+        contentHeight: infoPopup.fittedContentHeight(infoColumn.implicitHeight)
+
+        Column {
+          id: infoColumn
+          anchors.fill: parent
+          spacing: Style.space(10)
+
+          BorderSurface {
+            width: parent.width
+            height: width
+            radius: Style.spacing.labelGap
+            color: Style.normalFillFor(root.bar.foreground, Color.accent)
+            borderSpec: Border.controlSpec("normal", root.bar.foreground, Color.accent)
+
+            Image {
+              anchors.fill: parent
+              anchors.margins: Style.space(2)
+              fillMode: Image.PreserveAspectCrop
+              asynchronous: true
+              source: root.artUrl
+              visible: source !== ""
+            }
+
+            Text {
+              anchors.centerIn: parent
+              visible: root.artUrl === ""
+              text: "󰝚"
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.displayLarge
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            text: root.title || "Nothing playing"
+            color: root.bar.foreground
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.subtitle
+            font.bold: true
+            elide: Text.ElideRight
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            text: root.artist
+            color: Qt.darker(root.bar.foreground, 1.3)
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            elide: Text.ElideRight
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            visible: text !== ""
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            text: root.album
+            color: Qt.darker(root.bar.foreground, 1.6)
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            visible: text !== ""
+          }
+
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(2)
+
+            Repeater {
+              model: 5
+
+              Text {
+                readonly property int starIndex: index + 1
+                width: Style.font.body
+                textFormat: Text.PlainText
+                horizontalAlignment: Text.AlignHCenter
+                text: ratingWidget.starGlyph(starIndex <= ratingWidget.ratingStars)
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.body * 0.85
+              }
+            }
+          }
+
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(6)
+
+            Button {
+              iconText: "󰒮"
+              foreground: root.bar.foreground
+              horizontalPadding: Style.spacing.controlPaddingX
+              verticalPadding: Style.spacing.controlPaddingY
+              onClicked: root.previous()
+            }
+
+            Button {
+              iconText: root.playIcon
+              foreground: root.bar.foreground
+              horizontalPadding: Style.spacing.panelGap
+              verticalPadding: Style.spacing.controlPaddingY
+              iconSize: Style.font.iconLarge
+              onClicked: root.playPause()
+            }
+
+            Button {
+              iconText: "󰒭"
+              foreground: root.bar.foreground
+              horizontalPadding: Style.spacing.controlPaddingX
+              verticalPadding: Style.spacing.controlPaddingY
+              onClicked: root.next()
+            }
+          }
+        }
       }
     }
   }
