@@ -183,7 +183,8 @@ BarWidget {
           // plain concatenated string collapses into an overlapping mess.
           // Each star gets its own fixed-size box instead.
           Text {
-            readonly property int starIndex: index + 1
+            // Vertically, star 1 sits at the bottom so the rating fills upward.
+            readonly property int starIndex: root.vertical ? 5 - index : index + 1
             width: Style.font.body
             textFormat: Text.PlainText
             horizontalAlignment: Text.AlignHCenter
